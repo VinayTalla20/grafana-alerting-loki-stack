@@ -1,0 +1,32 @@
+Origin not allowed 
+ when accessing Grafana UI login can be made successfully, but you cannot make any post request(save changes)
+ 
+ grafana is running behind nginx ingress with Go Daddy Domain
+ Go Daaddy Domain is added as backed pool host to Azure Front Door
+ 
+ 
+ 
+solution:
+
+The header which is passing from Front Door to ingress is different from the host(spec.host) configured in ingress rules.
+
+so, add engines rules to front door routing rules, modifying the header to ingress host
+
+       condition      HeaderName   Operator    Header Value
+if    request header   Origin        contains     https://fronthost.azurefd.net
+
+
+            action      HeaderName   Operator    Header Value
+then    request header   Origin      overwrites   https://GodaddyDomain or ingress host
+
+
+
+
+incase WAF policy is enabled with preventation mode
+
+then add custom rules 
+
+operator regex
+
+match value:  domain
+
