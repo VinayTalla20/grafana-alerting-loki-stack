@@ -1,0 +1,339 @@
+test_pod:
+  image: bats/bats:v1.1.0
+  pullPolicy: IfNotPresent
+
+loki:
+  enabled: true
+  isDefault: true
+  url: http://{{(include "loki.serviceName" .)}}:{{ .Values.loki.service.port }}
+  gateway:
+    enabled: true
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: app
+            operator: In
+            values:
+            - smartconx
+  persistence:
+    type: pvc
+    enabled: true
+    size: 20Gi
+    storageClassName: grafana
+    existingClaim: loki-pvc
+  existingSecretForConfig: loki
+  config:
+    server:
+      log_level: "error"
+    ruler:
+      storage:
+        type: local
+        local:
+          directory: /data/loki/rules
+      rule_path: /tmp/loki/rules
+      alertmanager_url: http://loki-prometheus-alertmanager:80
+      enable_alertmanager_discovery: false
+      ring:
+        kvstore:
+          store: inmemory
+      enable_api: true
+      enable_alertmanager_v2: true
+
+  readinessProbe:
+    httpGet:
+      path: /ready
+      port: http-metrics
+    initialDelaySeconds: 45
+  livenessProbe:
+    httpGet:
+      path: /ready
+      port: http-metrics
+    initialDelaySeconds: 45
+  datasource:
+    jsonData: {}
+    uid: ""
+
+
+promtail:
+  enabled: true
+  config:
+    logLevel: info
+    serverPort: 3101
+    clients:
+      - url: http://{{ .Release.Name }}:3100/loki/api/v1/push
+
+fluent-bit:
+  enabled: false
+
+grafana:
+  enabled: true
+  sidecar:
+    datasources:
+      label: ""
+      labelValue: ""
+      enabled: true
+      maxLines: 1000
+  image:
+    tag: 9.3.1
+  admin:
+    existingSecret: azure-aad
+    userKey: admin-user
+    passwordKey: admin-password
+
+  env:
+    GF_SERVER_DOMAIN: 
+    GF_SERVER_ROOT_URL: 
+    GF_SERVER_SERVE_FROM_SUB_PATH: true
+  envValueFrom:
+    GF_AUTH_AZUREAD_CLIENT_ID:
+        secretKeyRef:
+          name: azure-aad
+          key: client_id
+    GF_AUTH_AZUREAD_CLIENT_SECRET:
+        secretKeyRef:
+          name: azure-aad
+          key: client_secret
+            #GF_SECURITY_ADMIN_USER:
+            #secretKeyRef:
+            # key: admin-user
+            #name: azure-aad
+            #GF_SECURITY_ADMIN_PASSWORD:
+            #secretKeyRef:
+            #key: admin-password
+            #name: azure-aad
+
+  persistence:
+    type: pvc
+    enabled: true
+    size: 10Gi
+    storageClassName: grafana
+    existingClaim: grafana-pvc
+  
+  alerting:
+     delete_rules.yaml:
+       apiVersion: 1
+       deleteRules: 
+       - orgId: 1
+         uid: podfailure_id
+       - orgId: 1
+         uid: dummy_alertid
+       - orgId: 1
+         uid: dummy_alertid2
+         
+     new_rules.yaml:
+       apiVersion: 1
+       groups:
+       - orgId: 1
+         name: Failures 
+         folder:  PodFailure
+         interval: 20s
+         rules: 
+          - uid: nodecpu_id 
+            title: NodeCPUUsage
+            condition: B
+            data: 
+            - refId: A
+              queryType: ''
+              relativeTimeRange: 
+                from: 300
+                to: 0
+              datasourceUid: PBFA97CFB590B2093
+              model:
+                datasource: 
+                  type: prometheus
+                  uid: PBFA97CFB590B2093
+                editorMode: code
+                expr: ((1-(node_memory_MemAvailable_bytes/node_memory_MemTotal_bytes))*100) > 50
+                format: time_series
+                interval: ''
+                intervalMs: 15000
+                legendFormat: __auto
+                maxDataPoints: 43200
+                range: true
+                refId: A
+            - refId: B
+              datasourceUid: "-100"
+              relativeTimeRange:
+                form: 300
+                to: 0
+              model:
+                datasource:
+                  type: __expr__
+                  uid: __expr__
+                  name: Expression
+                type: reduce
+                hide: false
+                reducer: last
+                expression: A
+                intervalMs: 15000
+                maxDataPoints: 43200
+                window: ''
+                refId: B
+            dashboardUid: nodecpu
+            panelId: 1
+            execErrState: OK
+            noDataState: OK
+            for: 3m
+            labels:
+              helm: alerts
+              alert: cpuusage
+
+     contact_points_test.yaml:
+       apiVersion: 1
+       contactPoints: 
+       - orgId: 1
+         name: helm_contact_points
+         receivers:
+         - uid: helm_mail_id
+           type: email
+           disableResolveMessage: true
+           settings: 
+             addresses: 
+
+  grafana.ini:
+      smtp:
+        enabled: true
+        host: 
+        user: 
+        password: 
+        skip_verify: true
+        from_name: Grafana_STG_ICS
+        from_address: 
+      alerting:
+        enabled: true
+      auth.azuread:
+        name: Azure AD
+        enabled: true
+        allow_sign_up: true
+        scopes: openid email profile
+        auth_url: 
+        token_url: 
+        allow_assign_grafana_admin: false
+
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: app
+            operator: In
+            values:
+            - smartconx
+
+prometheus:
+  enabled: true
+  isDefault: false
+  url: http://{{ include "prometheus.fullname" .}}:{{ .Values.prometheus.server.service.servicePort }}{{ .Values.prometheus.server.prefixURL }}
+  datasource:
+    jsonData: {}
+  alertmanager:
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: app
+              operator: In
+              values:
+              - smartconx
+    persistentVolume:
+      enabled: true
+      size: 10Gi
+      storageClass: grafana
+      existingClaim: prometheus-alertmanager-pvc
+  server:
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: app
+              operator: In
+              values:
+              - smartconx
+    persistentVolume:
+      enabled: true
+      size: 10Gi
+      storageClass: grafana
+      existingClaim: prometheus-server-pvc
+  kube-state-metrics: 
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: app
+              operator: In
+              values:
+              - smartconx
+  prometheus-pushgateway:
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: app
+              operator: In
+              values:
+              - smartconx            
+          
+filebeat:
+  enabled: false
+  filebeatConfig:
+    filebeat.yml: |
+      # logging.level: debug
+      filebeat.inputs:
+      - type: container
+        paths:
+          - /var/log/containers/*.log
+        processors:
+        - add_kubernetes_metadata:
+            host: ${NODE_NAME}
+            matchers:
+            - logs_path:
+                logs_path: "/var/log/containers/"
+      output.logstash:
+        hosts: ["logstash-loki:5044"]
+
+logstash:
+  enabled: false
+  image: grafana/logstash-output-loki
+  imageTag: 1.0.1
+  filters:
+    main: |-
+      filter {
+        if [kubernetes] {
+          mutate {
+            add_field => {
+              "container_name" => "%{[kubernetes][container][name]}"
+              "namespace" => "%{[kubernetes][namespace]}"
+              "pod" => "%{[kubernetes][pod][name]}"
+            }
+            replace => { "host" => "%{[kubernetes][node][name]}"}
+          }
+        }
+        mutate {
+          remove_field => ["tags"]
+        }
+      }
+  outputs:
+    main: |-
+      output {
+        loki {
+          url => "http://loki:3100/loki/api/v1/push"
+          #username => "test"
+          #password => "test"
+        }
+        # stdout { codec => rubydebug }
+      }
+
+# proxy is currently only used by loki test pod
+# Note: If http_proxy/https_proxy are set, then no_proxy should include the
+# loki service name, so that tests are able to communicate with the loki
+# service.
+proxy:
+  http_proxy: ""
+  https_proxy: ""
+  no_proxy: ""
