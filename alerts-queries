@@ -1,0 +1,31 @@
+for string alerts using loki datasource:
+
+sum(rate({namespace="syndication"} |= "coveo connector error occured" [5m])) by (pod)
+
+
+pod failure:
+
+kube_pod_status_phase{phase=~"Failed|Pending|Unknown"}
+
+Node memory usage:
+
+((1-(node_memory_MemAvailable_bytes/node_memory_MemTotal_bytes))*100) > 80
+
+Node CPU usage:
+
+100 - (avg by(node) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 75
+
+
+
+pod cpu usage:
+
+(sum(rate(container_cpu_usage_seconds_total{namespace="syndication", container="fedaration-db"}[5m])) BY (pod, instance) * 100)
+
+
+pod memory usage:
+
+(sum(container_memory_working_set_bytes{container="fedaration-db"}) BY (instance, container, pod) / sum(container_spec_memory_limit_bytes > 0) BY (instance, container, pod) * 100)
+
+job failed:
+
+kube_job_status_failed{reason="BackoffLimitExceeded"}
